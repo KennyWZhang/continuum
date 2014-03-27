@@ -1423,18 +1423,6 @@ var assembler = (function(exports){
     });
   }
 
-  function block(callback){
-    var transfer = new ControlTransfer(context.labels);
-    context.jumps.push(transfer);
-    context.labels = new Hash;
-    pushScope('block');
-    callback();
-    transfer.updateBreaks(current());
-    context.jumps.pop();
-    context.labels = transfer.labels;
-    popScope();
-  }
-
   function loop(callback){
     var transfer = new ControlTransfer(context.labels);
     context.jumps.push(transfer);
@@ -1675,26 +1663,44 @@ var assembler = (function(exports){
 
   function BlockStatement(node){
     pushNode(node.body);
-    block(function(){
-      initLexicalDecls(node.body);
-      each(lexDecls(node.body), function(decl){
-        pushNode(decl);
-        each(decl.boundNames, function(name){
-          if (decl.type === 'FunctionDeclaration') {
-            FunctionDeclaration(decl);
-            FUNCTION(false, decl.id.name, decl.code);
-            LET(decl.id.name);
-          }
-        });
-        popNode();
-      });
+    pushScope('block');
 
-      var wrapper = wrap(node.wrapped);
-      each(node.body, function(child){
-        wrapper(child);
-        recurse(child);
+    var transfer;
+    for (var label in context.labels) {
+      transfer = new ControlTransfer(context.labels);
+      break;
+    }
+    if (transfer) {
+      context.jumps.push(transfer);
+      context.labels = new Hash;
+    }
+
+    initLexicalDecls(node.body);
+    each(lexDecls(node.body), function(decl){
+      pushNode(decl);
+      each(decl.boundNames, function(name){
+        if (decl.type === 'FunctionDeclaration') {
+          FunctionDeclaration(decl);
+          FUNCTION(false, decl.id.name, decl.code);
+          LET(decl.id.name);
+        }
       });
+      popNode();
     });
+
+    var wrapper = wrap(node.wrapped);
+    each(node.body, function(child){
+      wrapper(child);
+      recurse(child);
+    });
+
+    if (transfer) {
+      transfer.updateBreaks(current());
+      context.jumps.pop();
+      context.labels = transfer.labels;
+    }
+
+    popScope();
     popNode();
   }
 
@@ -2136,50 +2142,57 @@ var assembler = (function(exports){
   }
 
   function SwitchStatement(node){
-    block(function(){
-      var defaultFound = null;
-      recurse(node.discriminant);
-      GET();
+    var defaultFound = null;
+    recurse(node.discriminant);
+    GET();
 
-      pushScope('block');
+    pushScope('block');
 
-      if (node.cases){
-        each(node.cases, initLexicalDecls);
-        var cases = [];
-        each(node.cases, function(item, i){
-          if (item.test){
-            recurse(item.test);
-            GET();
-            cases.push(CASE(0));
-          } else {
-            defaultFound = i;
-            cases.push(0);
-          }
-        });
+    var transfer = new ControlTransfer(context.labels);
+    context.jumps.push(transfer);
+    context.labels = new Hash;
 
-        if (defaultFound !== null){
-          DEFAULT(cases[defaultFound]);
+    if (node.cases){
+      each(node.cases, initLexicalDecls);
+      var cases = [];
+      each(node.cases, function(item, i){
+        if (item.test){
+          recurse(item.test);
+          GET();
+          cases.push(CASE(0));
         } else {
-          POP();
-          var last = JUMP();
+          defaultFound = i;
+          cases.push(0);
         }
+      });
 
-        var wrapper = wrap(node.wrapped);
-        each(node.cases, function(item, i){
-          adjust(cases[i]);
-          wrapper(item);
-          each(item.consequent, function(child){
-            wrapper(child);
-            recurse(child);
-          });
-        });
-
-        last && adjust(last);
+      if (defaultFound !== null){
+        DEFAULT(cases[defaultFound]);
       } else {
         POP();
+        var last = JUMP();
       }
 
-    });
+      var wrapper = wrap(node.wrapped);
+      each(node.cases, function(item, i){
+        adjust(cases[i]);
+        wrapper(item);
+        each(item.consequent, function(child){
+          wrapper(child);
+          recurse(child);
+        });
+      });
+
+      last && adjust(last);
+    } else {
+      POP();
+    }
+
+    transfer.updateBreaks(current());
+    context.jumps.pop();
+    context.labels = transfer.labels;
+
+    popScope();
   }
 
 
