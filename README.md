@@ -54,7 +54,7 @@ Basic usage of continuum is can be treated like using `eval` in an iframe or Nod
     });
 
 
-## [Documentation](continuum/tree/gh-pages/docs/index.md)
+## [Documentation](docs/index.md)
 
 # ES6 Implementation Status
 
